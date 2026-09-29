@@ -21,6 +21,7 @@ jobs:
         run: pip install python-telegram-bot
 
       - name: Run bot
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-        run: python bot.py
+  env:
+    BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+    CARD_NUMBER: ${{ secrets.CARD_NUMBER }}
+  run: python bot.py
