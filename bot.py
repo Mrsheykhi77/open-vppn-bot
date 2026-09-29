@@ -3,7 +3,6 @@ from telegram import InlineKeyboardButton as B,InlineKeyboardMarkup as M
 from telegram.ext import Application,CommandHandler,CallbackQueryHandler,MessageHandler,filters
 
 TOKEN=os.environ["BOT_TOKEN"];CARD=os.environ["CARD_NUMBER"];ADMIN=704985066
-
 P={
 "ov20":("OPEN VPN VIP","20GB","1","30 روز","199,000"),"ov30":("OPEN VPN VIP","30GB","1","30 روز","249,000"),
 "ov50":("OPEN VPN VIP","50GB","1","30 روز","299,000"),"ov100":("OPEN VPN VIP","100GB","1","30 روز","499,000"),
@@ -13,8 +12,8 @@ P={
 "npv25":("NPV Tunnel","25GB","نامحدود","30 روز","145,000"),"npv50":("NPV Tunnel","50GB","نامحدود","30 روز","220,000"),
 "npv80":("NPV Tunnel","80GB","نامحدود","30 روز","300,000")}
 
-async def menu(m,t,bs):
-    await m.edit_message_text(t,reply_markup=M([[B(x,callback_data=y)] for x,y in bs]))
+async def menu(q,t,bs):
+    await q.edit_message_text(t,reply_markup=M([[B(x,callback_data=y)] for x,y in bs]))
 
 async def start(u,c):
     await u.message.reply_text("🛒 فروشگاه OpenVppn ❤️\n\nسرویس را انتخاب کنید:",
@@ -46,7 +45,8 @@ async def btn(u,c):
 async def receipt(u,c):
     k=c.user_data.get("order")
     if k not in P:return await u.message.reply_text("ابتدا یک پلن انتخاب کنید.")
-    p=P[k];x=u.effective_user;c.user_data["admin_order"]=(x.id,k)
+    p=P[k];x=u.effective_user
+    c.bot_data["orders"]={**c.bot_data.get("orders",{}),str(x.id):(x.id,k)}
     text=f"🧾 سفارش جدید\n\n👤 {x.full_name}\n🆔 {x.id}\n\n📦 {p[0]}\n📊 {p[1]}\n👥 {p[2]}\n💰 {p[4]} تومان"
     await u.message.forward(ADMIN)
     await c.bot.send_message(ADMIN,text,reply_markup=M([[B("✅ تأیید پرداخت",callback_data="ok"+str(x.id)),B("❌ رد پرداخت",callback_data="no"+str(x.id))]]))
@@ -54,30 +54,33 @@ async def receipt(u,c):
     c.user_data.pop("order",None)
 
 async def admin(u,c):
-    q=u.callback_query;await q.answer();d=q.data
+    q=u.callback_query;await q.answer()
     if u.effective_user.id!=ADMIN:return
-    uid=int(d[2:]);c.bot_data["send_to"]=uid
-    if d.startswith("ok"):
-        await q.message.reply_text("✅ پرداخت تأیید شد.\n\n📤 حالا کانفیگ را بفرستید:\n\n🟢 OpenVPN: اول فایل، سپس متن\n🔵 NPV: فقط متن ساب‌لینک")
-    else:
-        await c.bot.send_message(uid,"❌ پرداخت شما تأیید نشد.\n\nلطفاً با پشتیبانی تماس بگیرید: @mammadhossein1")
-        await q.message.reply_text("❌ سفارش رد شد.")
+    d=q.data;uid=int(d[2:]);o=c.bot_data.get("orders",{}).get(str(uid))
+    if not o:return await q.message.reply_text("❌ سفارش پیدا نشد.")
+    k=o[1];c.bot_data["delivery"]=(uid,k,"file" if k.startswith("ov") else "text")
+    if d.startswith("no"):
+        await c.bot.send_message(uid,"❌ پرداخت شما تأیید نشد.\nپشتیبانی: @mammadhossein1")
+        return await q.message.reply_text("❌ سفارش رد شد.")
+    msg="📎 فایل کانفیگ OpenVPN را بفرستید." if k.startswith("ov") else "📝 ساب‌لینک NPV را به صورت متن بفرستید."
+    await q.message.reply_text("✅ پرداخت تأیید شد.\n\n"+msg)
 
-async def send_config(u,c):
-    if u.effective_user.id!=ADMIN or "send_to" not in c.bot_data:return
-    uid=c.bot_data["send_to"]
-    if u.message.document:
-        await u.message.forward(uid)
-        await u.message.reply_text("✅ فایل برای مشتری ارسال شد.\n📝 حالا متن کانفیگ را بفرستید.")
-    elif u.message.text:
+async def delivery(u,c):
+    if u.effective_user.id!=ADMIN or "delivery" not in c.bot_data:return
+    uid,k,step=c.bot_data["delivery"]
+    if step=="file" and u.message.document:
+        await u.message.copy(uid);c.bot_data["delivery"]=(uid,k,"text")
+        return await u.message.reply_text("✅ فایل ارسال شد.\n📝 حالا متن کانفیگ را بفرستید.")
+    if step=="file":return await u.message.reply_text("⚠️ لطفاً فایل کانفیگ را ارسال کنید.")
+    if step=="text" and u.message.text:
         await c.bot.send_message(uid,u.message.text)
-        await u.message.reply_text("✅ اطلاعات برای مشتری ارسال شد.\n🎉 سفارش تکمیل شد.")
-        c.bot_data.pop("send_to",None)
+        await u.message.reply_text("✅ کانفیگ برای مشتری ارسال شد.\n🎉 سفارش تکمیل شد.")
+        c.bot_data.pop("delivery",None)
 
 app=Application.builder().token(TOKEN).build()
 app.add_handler(CommandHandler("start",start))
 app.add_handler(CallbackQueryHandler(admin,pattern="^(ok|no)"))
 app.add_handler(CallbackQueryHandler(btn))
 app.add_handler(MessageHandler(filters.PHOTO,receipt))
-app.add_handler(MessageHandler((filters.Document.ALL|filters.TEXT)&~filters.COMMAND,send_config))
+app.add_handler(MessageHandler(filters.Document.ALL|filters.TEXT,delivery))
 app.run_polling()
