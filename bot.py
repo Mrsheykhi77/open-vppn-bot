@@ -39,12 +39,60 @@ def oid():
     return f"OV-{random.randint(1000, 9999)}"
 
 
+def status_fa(status):
+    return {
+        "review": "در انتظار بررسی پرداخت",
+        "delivery": "در حال آماده‌سازی / تحویل",
+        "completed": "تکمیل‌شده",
+        "rejected": "ردشده",
+    }.get(status, "نامشخص")
+
+
+def order_text(number, order):
+    p = P.get(order["key"])
+
+    if not p:
+        return f"🔖 سفارش #{number}"
+
+    return (
+        f"🔖 سفارش #{number}\n\n"
+        f"👤 {order.get('name', 'نامشخص')}\n"
+        f"🆔 {order['uid']}\n\n"
+        f"📦 {p[0]}\n"
+        f"📊 حجم: {p[1]}\n"
+        f"👥 کاربران: {p[2]}\n"
+        f"⏳ اعتبار: {p[3]}\n"
+        f"💰 مبلغ: {p[4]} تومان\n\n"
+        f"📌 وضعیت: {status_fa(order.get('status'))}"
+    )
+
+
+def admin_home_markup():
+    return M([
+        [B("📦 سفارش‌های جدید", callback_data="adm_new")],
+        [B("⏳ سفارش‌های در حال انجام", callback_data="adm_work")],
+        [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
+        [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
+        [B("📊 آمار فروش", callback_data="adm_stats")],
+    ])
+
+
+def back_for_status(status):
+    return {
+        "review": "adm_new",
+        "delivery": "adm_work",
+        "completed": "adm_done",
+        "rejected": "adm_no",
+    }.get(status, "adm_home")
+
+
 async def menu(q, text, buttons):
     await q.edit_message_text(
         text,
-        reply_markup=M(
-            [[B(x, callback_data=y)] for x, y in buttons]
-        ),
+        reply_markup=M([
+            [B(x, callback_data=y)]
+            for x, y in buttons
+        ]),
     )
 
 
@@ -69,7 +117,6 @@ async def start(u, c):
 # =========================
 
 async def admin_panel(u, c):
-
     if u.effective_user.id != ADMIN:
         return await u.message.reply_text(
             "⛔ دسترسی ندارید."
@@ -78,18 +125,83 @@ async def admin_panel(u, c):
     await u.message.reply_text(
         "🛠️ پنل مدیریت OpenVppn\n\n"
         "مدیریت سفارش‌ها و فروشگاه:",
-        reply_markup=M([
-            [B("📦 سفارش‌های جدید", callback_data="adm_new")],
-            [B("⏳ سفارش‌های در حال انجام", callback_data="adm_work")],
-            [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
-            [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
-            [B("📊 آمار فروش", callback_data="adm_stats")],
-        ]),
+        reply_markup=admin_home_markup(),
+    )
+
+
+async def show_admin_orders(
+    q,
+    c,
+    status,
+    title,
+    callback_name,
+):
+    orders = c.bot_data.get("orders", {})
+    found = []
+
+    for number, order in orders.items():
+
+        if order.get("status") != status:
+            continue
+
+        p = P.get(order.get("key"))
+
+        if not p:
+            continue
+
+        label = (
+            f"🔖 #{number}\n"
+            f"📦 {p[0]} | {p[1]}\n"
+            f"👤 {order.get('name', 'نامشخص')}\n"
+            f"🆔 {order['uid']}"
+        )
+
+        found.append(
+            (number, label)
+        )
+
+    buttons = []
+
+    for number, label in found:
+        buttons.append([
+            B(
+                label,
+                callback_data=f"ord_{number}"
+            )
+        ])
+
+    if not found:
+        text = (
+            f"{title}\n\n"
+            "هیچ سفارشی وجود ندارد."
+        )
+    else:
+        text = (
+            f"{title}\n\n"
+            "برای دیدن جزئیات، روی سفارش موردنظر بزنید."
+        )
+
+    buttons.append([
+        B(
+            "🔄 بروزرسانی",
+            callback_data=callback_name
+        )
+    ])
+
+    buttons.append([
+        B(
+            "🔙 پنل مدیریت",
+            callback_data="adm_home"
+        )
+    ])
+
+    await q.edit_message_text(
+        text,
+        reply_markup=M(buttons),
     )
 
 
 async def admin_menu(u, c):
-
     q = u.callback_query
     await q.answer()
 
@@ -97,25 +209,23 @@ async def admin_menu(u, c):
         return
 
     d = q.data
-    orders = c.bot_data.get("orders", {})
 
-    # برگشت به پنل اصلی
+    # HOME
     if d == "adm_home":
 
         return await q.edit_message_text(
             "🛠️ پنل مدیریت OpenVppn\n\n"
             "مدیریت سفارش‌ها و فروشگاه:",
-            reply_markup=M([
-                [B("📦 سفارش‌های جدید", callback_data="adm_new")],
-                [B("⏳ سفارش‌های در حال انجام", callback_data="adm_work")],
-                [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
-                [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
-                [B("📊 آمار فروش", callback_data="adm_stats")],
-            ]),
+            reply_markup=admin_home_markup(),
         )
 
-    # لیست سفارش‌ها
-    if d in ["adm_new", "adm_work", "adm_done", "adm_no"]:
+    # ORDERS
+    if d in [
+        "adm_new",
+        "adm_work",
+        "adm_done",
+        "adm_no",
+    ]:
 
         status = {
             "adm_new": "review",
@@ -131,48 +241,21 @@ async def admin_menu(u, c):
             "rejected": "❌ سفارش‌های ردشده",
         }[status]
 
-        found = []
-
-        for number, order in orders.items():
-
-            if order.get("status") == status:
-
-                p = P.get(order["key"])
-
-                if p:
-                    found.append(
-                        f"🔖 #{number}\n"
-                        f"📦 {p[0]} | {p[1]}\n"
-                        f"👤 ID: {order['uid']}"
-                    )
-
-        text = title + "\n\n"
-
-        if found:
-            text += "\n\n".join(found)
-        else:
-            text += "هیچ سفارشی وجود ندارد."
-
-        return await q.edit_message_text(
-            text,
-            reply_markup=M([
-                [
-                    B(
-                        "🔄 بروزرسانی",
-                        callback_data=d
-                    )
-                ],
-                [
-                    B(
-                        "🔙 پنل مدیریت",
-                        callback_data="adm_home"
-                    )
-                ],
-            ]),
+        return await show_admin_orders(
+            q,
+            c,
+            status,
+            title,
+            d,
         )
 
-    # آمار
+    # STATS
     if d == "adm_stats":
+
+        orders = c.bot_data.get(
+            "orders",
+            {}
+        )
 
         total = len(orders)
 
@@ -210,6 +293,44 @@ async def admin_menu(u, c):
             reply_markup=M([
                 [
                     B(
+                        "🔄 بروزرسانی",
+                        callback_data="adm_stats"
+                    )
+                ],
+                [
+                    B(
+                        "🔙 پنل مدیریت",
+                        callback_data="adm_home"
+                    )
+                ],
+            ]),
+        )
+
+
+# =========================
+# ORDER DETAIL
+# =========================
+
+async def order_detail(u, c):
+    q = u.callback_query
+    await q.answer()
+
+    if u.effective_user.id != ADMIN:
+        return
+
+    number = q.data[4:]
+
+    order = c.bot_data.get(
+        "orders",
+        {}
+    ).get(number)
+
+    if not order:
+        return await q.edit_message_text(
+            "❌ سفارش پیدا نشد.",
+            reply_markup=M([
+                [
+                    B(
                         "🔙 پنل مدیریت",
                         callback_data="adm_home"
                     )
@@ -217,29 +338,104 @@ async def admin_menu(u, c):
             ]),
         )
 
+    text = order_text(
+        number,
+        order
+    )
+
+    status = order.get("status")
+
+    buttons = []
+
+    # در انتظار بررسی
+    if status == "review":
+
+        buttons.append([
+            B(
+                "✅ تأیید پرداخت",
+                callback_data=f"ok{number}"
+            ),
+            B(
+                "❌ رد پرداخت",
+                callback_data=f"no{number}"
+            ),
+        ])
+
+    # در حال تحویل
+    elif status == "delivery":
+
+        buttons.append([
+            B(
+                "📤 تحویل این سفارش",
+                callback_data=f"deliver_{number}"
+            )
+        ])
+
+    buttons.append([
+        B(
+            "🔙 برگشت",
+            callback_data=back_for_status(status)
+        )
+    ])
+
+    await q.edit_message_text(
+        text,
+        reply_markup=M(buttons),
+    )
+
 
 # =========================
-# USER BUTTONS
+# SHOP BUTTONS
 # =========================
 
 async def btn(u, c):
-
     q = u.callback_query
     await q.answer()
 
     d = q.data
 
-    # دکمه‌های پنل ادمین
+    # Admin callbacks
     if d.startswith("adm_"):
         return await admin_menu(u, c)
 
-    # خانه
+    if d.startswith("ord_"):
+        return await order_detail(u, c)
+
+    if d.startswith("deliver_"):
+        return await select_delivery_order(u, c)
+
+    if d == "cancel_delivery":
+        return await cancel_delivery(u, c)
+
+    # HOME
     if d == "home":
 
-        return await start(
-            type("X", (), {"message": q.message})(),
-            c
+        await q.message.reply_text(
+            "🛒 فروشگاه OpenVppn ❤️\n\n"
+            "سرویس را انتخاب کنید:",
+            reply_markup=M([
+                [
+                    B(
+                        "🟢 OPEN VPN | VIP",
+                        callback_data="ov"
+                    )
+                ],
+                [
+                    B(
+                        "🔵 NPV Tunnel | اقتصادی",
+                        callback_data="npv"
+                    )
+                ],
+                [
+                    B(
+                        "📞 پشتیبانی",
+                        callback_data="sup"
+                    )
+                ],
+            ]),
         )
+
+        return
 
     # OPEN VPN
     if d == "ov":
@@ -259,7 +455,7 @@ async def btn(u, c):
             ],
         )
 
-    # سه کاربره
+    # THREE USERS
     if d == "3":
 
         return await menu(
@@ -291,7 +487,7 @@ async def btn(u, c):
             ],
         )
 
-    # پشتیبانی
+    # SUPPORT
     if d == "sup":
 
         return await menu(
@@ -303,7 +499,7 @@ async def btn(u, c):
             ],
         )
 
-    # انتخاب پلن
+    # PLAN
     if d in P:
 
         p = P[d]
@@ -316,12 +512,18 @@ async def btn(u, c):
             f"⏳ {p[3]}\n"
             f"💰 {p[4]} تومان",
             [
-                ("💳 اطلاعات پرداخت", "pay" + d),
-                ("🔙 برگشت", "home"),
+                (
+                    "💳 اطلاعات پرداخت",
+                    "pay" + d
+                ),
+                (
+                    "🔙 برگشت",
+                    "home"
+                ),
             ],
         )
 
-    # اطلاعات پرداخت
+    # PAYMENT
     if d.startswith("pay"):
 
         k = d[3:]
@@ -332,23 +534,34 @@ async def btn(u, c):
             f"💳 اطلاعات پرداخت\n\n"
             f"📦 {p[0]} | {p[1]}\n"
             f"💰 {p[4]} تومان\n\n"
-            f"💳 کارت:\n"
-            f"{CARD}\n\n"
+            f"💳 کارت:\n{CARD}\n\n"
             f"👤 محمدحسین شیخی\n\n"
             f"پس از واریز رسید را بفرستید.",
             [
-                ("📤 ارسال رسید", "rec" + k),
-                ("🔙 برگشت", k),
+                (
+                    "📤 ارسال رسید",
+                    "rec" + k
+                ),
+                (
+                    "🔙 برگشت",
+                    k
+                ),
             ],
         )
 
-    # ارسال رسید
+    # SEND RECEIPT
     if d.startswith("rec"):
 
-        c.user_data["order"] = d[3:]
+        k = d[3:]
 
-        return await q.message.reply_text(
-            "📸 لطفاً عکس رسید پرداخت را همینجا ارسال کنید."
+        if k not in P:
+            return
+
+        c.user_data["order"] = k
+
+        await q.message.reply_text(
+            "📸 لطفاً عکس رسید پرداخت را "
+            "همینجا ارسال کنید."
         )
 
 
@@ -361,16 +574,24 @@ async def receipt(u, c):
     k = c.user_data.get("order")
 
     if k not in P:
-        return await u.message.reply_text(
-            "ابتدا یک پلن انتخاب کنید."
-        )
+        return
 
     p = P[k]
     x = u.effective_user
+
     number = oid()
 
-    c.bot_data.setdefault("orders", {})[number] = {
+    orders = c.bot_data.setdefault(
+        "orders",
+        {}
+    )
+
+    while number in orders:
+        number = oid()
+
+    orders[number] = {
         "uid": x.id,
+        "name": x.full_name,
         "key": k,
         "status": "review",
     }
@@ -386,10 +607,10 @@ async def receipt(u, c):
         f"💰 {p[4]} تومان"
     )
 
-    # ارسال رسید به ادمین
+    # Forward receipt to admin
     await u.message.forward(ADMIN)
 
-    # اطلاعات سفارش برای ادمین
+    # Send order information
     await c.bot.send_message(
         ADMIN,
         text,
@@ -413,7 +634,10 @@ async def receipt(u, c):
         f"🕐 وضعیت: در حال بررسی پرداخت"
     )
 
-    c.user_data.pop("order", None)
+    c.user_data.pop(
+        "order",
+        None
+    )
 
 
 # =========================
@@ -429,14 +653,15 @@ async def admin(u, c):
         return
 
     d = q.data
+
     number = d[2:]
 
     order = c.bot_data.get(
-        "orders", {}
+        "orders",
+        {}
     ).get(number)
 
     if not order:
-
         return await q.message.reply_text(
             "❌ سفارش پیدا نشد."
         )
@@ -444,35 +669,60 @@ async def admin(u, c):
     uid = order["uid"]
     k = order["key"]
 
-    # رد پرداخت
+    # REJECT
     if d.startswith("no"):
 
         order["status"] = "rejected"
 
         await c.bot.send_message(
             uid,
-            f"❌ پرداخت سفارش #{number} تأیید نشد.\n\n"
+            f"❌ پرداخت سفارش #{number} "
+            f"تأیید نشد.\n\n"
             f"پشتیبانی: @mammadhossein1"
         )
 
-        return await q.message.reply_text(
-            f"❌ سفارش #{number} رد شد."
+        await q.edit_message_text(
+            f"❌ سفارش #{number} رد شد.",
+            reply_markup=M([
+                [
+                    B(
+                        "🔙 سفارش‌های ردشده",
+                        callback_data="adm_no"
+                    )
+                ],
+                [
+                    B(
+                        "🔙 پنل مدیریت",
+                        callback_data="adm_home"
+                    )
+                ],
+            ]),
         )
 
-    # تأیید پرداخت
+        return
+
+    # APPROVE
     order["status"] = "delivery"
 
     if k.startswith("ov"):
 
         order["step"] = "file"
 
-        msg = "📎 فایل OpenVPN را بفرستید."
+        msg = (
+            "📎 فایل OpenVPN را "
+            "برای همین سفارش بفرستید.\n\n"
+            f"🔖 سفارش: #{number}"
+        )
 
     else:
 
         order["step"] = "npv"
 
-        msg = "📝 ساب‌لینک NPV را بفرستید."
+        msg = (
+            "📝 ساب‌لینک NPV را "
+            "برای همین سفارش بفرستید.\n\n"
+            f"🔖 سفارش: #{number}"
+        )
 
     await c.bot.send_message(
         uid,
@@ -480,9 +730,140 @@ async def admin(u, c):
         f"🕐 در حال آماده‌سازی سفارش شما..."
     )
 
-    await q.message.reply_text(
+    await q.edit_message_text(
         f"✅ سفارش #{number} تأیید شد.\n\n"
-        f"{msg}"
+        f"{msg}",
+        reply_markup=M([
+            [
+                B(
+                    "📤 انتخاب برای تحویل",
+                    callback_data=f"deliver_{number}"
+                )
+            ],
+            [
+                B(
+                    "🔙 سفارش‌های در حال انجام",
+                    callback_data="adm_work"
+                )
+            ],
+        ]),
+    )
+
+
+# =========================
+# SELECT DELIVERY ORDER
+# =========================
+
+async def select_delivery_order(u, c):
+
+    q = u.callback_query
+    await q.answer()
+
+    if u.effective_user.id != ADMIN:
+        return
+
+    number = q.data[len("deliver_"):]
+
+    order = c.bot_data.get(
+        "orders",
+        {}
+    ).get(number)
+
+    if not order:
+        return await q.edit_message_text(
+            "❌ سفارش پیدا نشد."
+        )
+
+    if order.get("status") != "delivery":
+
+        return await q.edit_message_text(
+            "⚠️ این سفارش دیگر در وضعیت "
+            "تحویل نیست.",
+            reply_markup=M([
+                [
+                    B(
+                        "🔙 سفارش‌های در حال انجام",
+                        callback_data="adm_work"
+                    )
+                ]
+            ]),
+        )
+
+    # مشخص کردن سفارش فعال
+    c.user_data["delivery_order"] = number
+
+    if order.get("step") == "file":
+
+        text = (
+            f"📤 تحویل سفارش #{number}\n\n"
+            f"📎 حالا فایل OpenVPN همین سفارش "
+            f"را به ربات بفرستید.\n\n"
+            f"⚠️ فایل فقط برای مشتری همین سفارش "
+            f"ارسال خواهد شد."
+        )
+
+    else:
+
+        text = (
+            f"📤 تحویل سفارش #{number}\n\n"
+            f"📝 حالا ساب‌لینک NPV همین سفارش "
+            f"را ارسال کنید.\n\n"
+            f"⚠️ لینک فقط برای مشتری همین سفارش "
+            f"ارسال خواهد شد."
+        )
+
+    await q.edit_message_text(
+        text,
+        reply_markup=M([
+            [
+                B(
+                    "❌ لغو انتخاب",
+                    callback_data="cancel_delivery"
+                )
+            ],
+            [
+                B(
+                    "🔙 سفارش‌های در حال انجام",
+                    callback_data="adm_work"
+                )
+            ],
+        ]),
+    )
+
+
+# =========================
+# CANCEL DELIVERY
+# =========================
+
+async def cancel_delivery(u, c):
+
+    q = u.callback_query
+    await q.answer()
+
+    if u.effective_user.id != ADMIN:
+        return
+
+    c.user_data.pop(
+        "delivery_order",
+        None
+    )
+
+    await q.edit_message_text(
+        "❌ انتخاب سفارش برای تحویل لغو شد.",
+        reply_markup=M([
+            [
+                B(
+                    "🔙 سفارش‌های در حال انجام",
+                    callback_data="adm_work"
+                )
+            ],
+            [
+                B(
+                    "🔙 پنل مدیریت",
+                    callback_data="adm_home"
+                )
+            ],
+        ]),
     )
 
 
@@ -495,111 +876,218 @@ async def delivery(u, c):
     if u.effective_user.id != ADMIN:
         return
 
-    for number, order in c.bot_data.get(
-        "orders", {}
-    ).items():
+    # فقط سفارش انتخاب‌شده
+    number = c.user_data.get(
+        "delivery_order"
+    )
 
-        if order.get("status") != "delivery":
-            continue
+    if not number:
+        return
 
-        uid = order["uid"]
+    order = c.bot_data.get(
+        "orders",
+        {}
+    ).get(number)
 
-        # فایل OPEN VPN
-        if order.get("step") == "file":
+    if not order or order.get("status") != "delivery":
 
-            if not u.message.document:
-                continue
+        c.user_data.pop(
+            "delivery_order",
+            None
+        )
 
-            await u.message.copy(uid)
+        return await u.message.reply_text(
+            "⚠️ سفارش انتخاب‌شده "
+            "دیگر قابل تحویل نیست."
+        )
 
-            await c.bot.send_message(
-                uid,
-                "✔️پروفایل سرور (برای همه سرویس ها)\n\n"
-                "✔️ سایت کاربران جهت نمایش میزان\n"
-                "اعتبار (بدون Vpn)\n"
-                "🌐 https://promiec.com/users/\n"
-                "⚠️ لینک بالا را بدون VPN باز کنید."
-            )
+    uid = order["uid"]
 
-            order["step"] = "login"
+    # =====================
+    # OPENVPN FILE
+    # =====================
+
+    if order.get("step") == "file":
+
+        if not u.message.document:
 
             return await u.message.reply_text(
-                f"✅ فایل سفارش #{number} ارسال شد.\n\n"
-                f"👤 حالا یوزرنیم و پسورد را بفرستید."
+                f"📎 لطفاً فایل OpenVPN "
+                f"سفارش #{number} را "
+                f"به‌صورت فایل (Document) ارسال کنید."
             )
 
-        # یوزرنیم و پسورد OPEN VPN
-        if (
-            order.get("step") == "login"
-            and u.message.text
-        ):
+        await u.message.copy(uid)
 
-            await c.bot.send_message(
-                uid,
-                u.message.text
+        await c.bot.send_message(
+            uid,
+            "✔️ پروفایل سرور "
+            "(برای همه سرویس‌ها)\n\n"
+            "✔️ سایت کاربران جهت نمایش میزان\n"
+            "اعتبار (بدون VPN)\n"
+            "🌐 https://promiec.com/users/\n"
+            "⚠️ لینک بالا را بدون VPN باز کنید."
+        )
+
+        order["step"] = "login"
+
+        await u.message.reply_text(
+            f"✅ فایل سفارش #{number} ارسال شد.\n\n"
+            f"👤 حالا یوزرنیم و پسورد "
+            f"همین سفارش را در یک پیام متنی "
+            f"بفرستید."
+        )
+
+        return
+
+    # =====================
+    # OPENVPN LOGIN
+    # =====================
+
+    if order.get("step") == "login":
+
+        if not u.message.text:
+
+            return await u.message.reply_text(
+                f"📝 لطفاً یوزرنیم و پسورد "
+                f"سفارش #{number} را "
+                f"به‌صورت متن ارسال کنید."
             )
 
-            order["status"] = "completed"
+        await c.bot.send_message(
+            uid,
+            u.message.text
+        )
 
-            await u.message.reply_text(
-                f"✅ سفارش #{number} تکمیل شد. 🎉"
+        order["status"] = "completed"
+        order["step"] = "done"
+
+        c.user_data.pop(
+            "delivery_order",
+            None
+        )
+
+        await u.message.reply_text(
+            f"✅ سفارش #{number} تکمیل شد. 🎉"
+        )
+
+        return
+
+    # =====================
+    # NPV LINK
+    # =====================
+
+    if order.get("step") == "npv":
+
+        if not u.message.text:
+
+            return await u.message.reply_text(
+                f"📝 لطفاً ساب‌لینک "
+                f"سفارش #{number} را "
+                f"به‌صورت متن ارسال کنید."
             )
 
-            return await start(
-                type("X", (), {"message": u.message})(),
-                c
-            )
+        await c.bot.send_message(
+            uid,
+            "تبریک اشتراک شما با موفقیت ساخته شد ❤️\n\n"
+            "🔗 لینک اشتراک شما:\n"
+            + u.message.text
+        )
 
-        # ساب لینک NPV
-        if (
-            order.get("step") == "npv"
-            and u.message.text
-        ):
+        order["status"] = "completed"
+        order["step"] = "done"
 
-            await c.bot.send_message(
-                uid,
-                "تبریک اشتراک شما با موفقیت ساخته شد❤️\n\n"
-                "🔗 لینک اشتراک شما :\n"
-                + u.message.text
-            )
+        c.user_data.pop(
+            "delivery_order",
+            None
+        )
 
-            order["status"] = "completed"
+        await u.message.reply_text(
+            f"✅ سفارش #{number} تکمیل شد. 🎉"
+        )
 
-            await u.message.reply_text(
-                f"✅ سفارش #{number} تکمیل شد. 🎉"
-            )
-
-            return await start(
-                type("X", (), {"message": u.message})(),
-                c
-            )
+        return
 
 
 # =========================
-# HANDLERS
+# BOT
 # =========================
 
 app = Application.builder().token(TOKEN).build()
 
-app.add_handler(
-    CommandHandler("start", start)
-)
 
+# Start
 app.add_handler(
-    CommandHandler("admin", admin_panel)
-)
-
-app.add_handler(
-    CallbackQueryHandler(
-        admin,
-        pattern="^(ok|no)"
+    CommandHandler(
+        "start",
+        start
     )
 )
 
+
+# Admin panel
 app.add_handler(
-    CallbackQueryHandler(btn)
+    CommandHandler(
+        "admin",
+        admin_panel
+    )
 )
 
+
+# Approve / Reject
+app.add_handler(
+    CallbackQueryHandler(
+        admin,
+        pattern=r"^(ok|no)"
+    )
+)
+
+
+# Order details
+app.add_handler(
+    CallbackQueryHandler(
+        order_detail,
+        pattern=r"^ord_"
+    )
+)
+
+
+# Select delivery
+app.add_handler(
+    CallbackQueryHandler(
+        select_delivery_order,
+        pattern=r"^deliver_"
+    )
+)
+
+
+# Cancel delivery
+app.add_handler(
+    CallbackQueryHandler(
+        cancel_delivery,
+        pattern=r"^cancel_delivery$"
+    )
+)
+
+
+# Admin menu
+app.add_handler(
+    CallbackQueryHandler(
+        admin_menu,
+        pattern=r"^adm_"
+    )
+)
+
+
+# General shop buttons
+app.add_handler(
+    CallbackQueryHandler(
+        btn
+    )
+)
+
+
+# Customer receipt
 app.add_handler(
     MessageHandler(
         filters.PHOTO,
@@ -607,6 +1095,8 @@ app.add_handler(
     )
 )
 
+
+# Admin delivery
 app.add_handler(
     MessageHandler(
         filters.Document.ALL | filters.TEXT,
@@ -614,9 +1104,5 @@ app.add_handler(
     )
 )
 
-
-# =========================
-# RUN
-# =========================
 
 app.run_polling()
