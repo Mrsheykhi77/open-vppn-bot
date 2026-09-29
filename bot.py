@@ -79,11 +79,11 @@ async def admin_panel(u, c):
         "🛠️ پنل مدیریت OpenVppn\n\n"
         "مدیریت سفارش‌ها و فروشگاه:",
         reply_markup=M([
-            [B("📦 سفارش‌های جدید", "adm_new")],
-            [B("⏳ سفارش‌های در حال انجام", "adm_work")],
-            [B("✅ سفارش‌های تکمیل‌شده", "adm_done")],
-            [B("❌ سفارش‌های ردشده", "adm_no")],
-            [B("📊 آمار فروش", "adm_stats")],
+            [B("📦 سفارش‌های جدید", callback_data="adm_new")],
+            [B("⏳ سفارش‌های در حال انجام", callback_data="adm_work")],
+            [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
+            [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
+            [B("📊 آمار فروش", callback_data="adm_stats")],
         ]),
     )
 
@@ -99,18 +99,18 @@ async def admin_menu(u, c):
     d = q.data
     orders = c.bot_data.get("orders", {})
 
-    # برگشت به پنل
+    # برگشت به پنل اصلی
     if d == "adm_home":
 
         return await q.edit_message_text(
             "🛠️ پنل مدیریت OpenVppn\n\n"
             "مدیریت سفارش‌ها و فروشگاه:",
             reply_markup=M([
-                [B("📦 سفارش‌های جدید", "adm_new")],
-                [B("⏳ سفارش‌های در حال انجام", "adm_work")],
-                [B("✅ سفارش‌های تکمیل‌شده", "adm_done")],
-                [B("❌ سفارش‌های ردشده", "adm_no")],
-                [B("📊 آمار فروش", "adm_stats")],
+                [B("📦 سفارش‌های جدید", callback_data="adm_new")],
+                [B("⏳ سفارش‌های در حال انجام", callback_data="adm_work")],
+                [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
+                [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
+                [B("📊 آمار فروش", callback_data="adm_stats")],
             ]),
         )
 
@@ -156,8 +156,18 @@ async def admin_menu(u, c):
         return await q.edit_message_text(
             text,
             reply_markup=M([
-                [B("🔄 بروزرسانی", d)],
-                [B("🔙 پنل مدیریت", "adm_home")],
+                [
+                    B(
+                        "🔄 بروزرسانی",
+                        callback_data=d
+                    )
+                ],
+                [
+                    B(
+                        "🔙 پنل مدیریت",
+                        callback_data="adm_home"
+                    )
+                ],
             ]),
         )
 
@@ -167,22 +177,26 @@ async def admin_menu(u, c):
         total = len(orders)
 
         review = sum(
-            1 for o in orders.values()
+            1
+            for o in orders.values()
             if o.get("status") == "review"
         )
 
         work = sum(
-            1 for o in orders.values()
+            1
+            for o in orders.values()
             if o.get("status") == "delivery"
         )
 
         done = sum(
-            1 for o in orders.values()
+            1
+            for o in orders.values()
             if o.get("status") == "completed"
         )
 
         rejected = sum(
-            1 for o in orders.values()
+            1
+            for o in orders.values()
             if o.get("status") == "rejected"
         )
 
@@ -194,7 +208,12 @@ async def admin_menu(u, c):
             f"✅ تکمیل‌شده: {done}\n"
             f"❌ ردشده: {rejected}",
             reply_markup=M([
-                [B("🔙 پنل مدیریت", "adm_home")]
+                [
+                    B(
+                        "🔙 پنل مدیریت",
+                        callback_data="adm_home"
+                    )
+                ]
             ]),
         )
 
@@ -240,7 +259,7 @@ async def btn(u, c):
             ],
         )
 
-    # OPEN VPN سه کاربره
+    # سه کاربره
     if d == "3":
 
         return await menu(
@@ -302,7 +321,7 @@ async def btn(u, c):
             ],
         )
 
-    # پرداخت
+    # اطلاعات پرداخت
     if d.startswith("pay"):
 
         k = d[3:]
@@ -370,7 +389,7 @@ async def receipt(u, c):
     # ارسال رسید به ادمین
     await u.message.forward(ADMIN)
 
-    # ارسال اطلاعات سفارش
+    # اطلاعات سفارش برای ادمین
     await c.bot.send_message(
         ADMIN,
         text,
@@ -412,7 +431,9 @@ async def admin(u, c):
     d = q.data
     number = d[2:]
 
-    order = c.bot_data.get("orders", {}).get(number)
+    order = c.bot_data.get(
+        "orders", {}
+    ).get(number)
 
     if not order:
 
@@ -438,7 +459,7 @@ async def admin(u, c):
             f"❌ سفارش #{number} رد شد."
         )
 
-    # تایید پرداخت
+    # تأیید پرداخت
     order["status"] = "delivery"
 
     if k.startswith("ov"):
@@ -483,7 +504,7 @@ async def delivery(u, c):
 
         uid = order["uid"]
 
-        # OPEN VPN FILE
+        # فایل OPEN VPN
         if order.get("step") == "file":
 
             if not u.message.document:
@@ -507,7 +528,7 @@ async def delivery(u, c):
                 f"👤 حالا یوزرنیم و پسورد را بفرستید."
             )
 
-        # OPEN VPN USERNAME / PASSWORD
+        # یوزرنیم و پسورد OPEN VPN
         if (
             order.get("step") == "login"
             and u.message.text
@@ -529,7 +550,7 @@ async def delivery(u, c):
                 c
             )
 
-        # NPV SUBLINK
+        # ساب لینک NPV
         if (
             order.get("step") == "npv"
             and u.message.text
@@ -549,7 +570,7 @@ async def delivery(u, c):
             )
 
             return await start(
-                type("X", (), {"message": u.message })(),
+                type("X", (), {"message": u.message})(),
                 c
             )
 
