@@ -18,7 +18,8 @@ async def menu(q,t,bs):
 async def start(u,c):
     await u.message.reply_text("🛒 فروشگاه OpenVppn ❤️\n\nسرویس را انتخاب کنید:",
     reply_markup=M([[B("🟢 OPEN VPN | VIP",callback_data="ov")],
-    [B("🔵 NPV Tunnel | اقتصادی",callback_data="npv")],[B("📞 پشتیبانی",callback_data="sup")]]))
+    [B("🔵 NPV Tunnel | اقتصادی",callback_data="npv")],
+    [B("📞 پشتیبانی",callback_data="sup")]]))
 
 async def btn(u,c):
     q=u.callback_query;await q.answer();d=q.data
@@ -58,23 +59,30 @@ async def admin(u,c):
     if u.effective_user.id!=ADMIN:return
     d=q.data;uid=int(d[2:]);o=c.bot_data.get("orders",{}).get(str(uid))
     if not o:return await q.message.reply_text("❌ سفارش پیدا نشد.")
-    k=o[1];c.bot_data["delivery"]=(uid,k,"file" if k.startswith("ov") else "text")
+    k=o[1]
     if d.startswith("no"):
-        await c.bot.send_message(uid,"❌ پرداخت شما تأیید نشد.\nپشتیبانی: @mammadhossein1")
+        await c.bot.send_message(uid,"❌ پرداخت شما تأیید نشد.\n\nپشتیبانی: @mammadhossein1")
         return await q.message.reply_text("❌ سفارش رد شد.")
-    msg="📎 فایل کانفیگ OpenVPN را بفرستید." if k.startswith("ov") else "📝 ساب‌لینک NPV را به صورت متن بفرستید."
+    c.bot_data["delivery"]=(uid,k,"file" if k.startswith("ov") else "npv")
+    msg="📎 فایل OpenVPN را بفرستید." if k.startswith("ov") else "📝 ساب‌لینک NPV را بفرستید."
     await q.message.reply_text("✅ پرداخت تأیید شد.\n\n"+msg)
 
 async def delivery(u,c):
     if u.effective_user.id!=ADMIN or "delivery" not in c.bot_data:return
     uid,k,step=c.bot_data["delivery"]
-    if step=="file" and u.message.document:
-        await u.message.copy(uid);c.bot_data["delivery"]=(uid,k,"text")
-        return await u.message.reply_text("✅ فایل ارسال شد.\n📝 حالا متن کانفیگ را بفرستید.")
-    if step=="file":return await u.message.reply_text("⚠️ لطفاً فایل کانفیگ را ارسال کنید.")
-    if step=="text" and u.message.text:
+    if step=="file":
+        if not u.message.document:return await u.message.reply_text("⚠️ لطفاً فایل OpenVPN را ارسال کنید.")
+        await u.message.copy(uid)
+        await c.bot.send_message(uid,"✔️پروفایل سرور (برای همه سرویس ها)\n\n✔️ سایت کاربران جهت نمایش میزان\nاعتبار (بدون Vpn)\n🌐 https://promiec.com/users/\n⚠️ لینک بالا را بدون VPN باز کنید.")
+        c.bot_data["delivery"]=(uid,k,"login")
+        return await u.message.reply_text("✅ فایل ارسال شد.\n\n👤 حالا یوزرنیم و پسورد را بفرستید.")
+    if step=="login" and u.message.text:
         await c.bot.send_message(uid,u.message.text)
-        await u.message.reply_text("✅ کانفیگ برای مشتری ارسال شد.\n🎉 سفارش تکمیل شد.")
+        await u.message.reply_text("✅ یوزرنیم و پسورد ارسال شد.\n🎉 سفارش OpenVPN تکمیل شد.")
+        c.bot_data.pop("delivery",None);return
+    if step=="npv" and u.message.text:
+        await c.bot.send_message(uid,"تبریک اشتراک شما با موفقیت ساخته شد❤️\n\n🔗 لینک اشتراک شما :\n"+u.message.text)
+        await u.message.reply_text("✅ ساب‌لینک ارسال شد.\n🎉 سفارش NPV تکمیل شد.")
         c.bot_data.pop("delivery",None)
 
 app=Application.builder().token(TOKEN).build()
