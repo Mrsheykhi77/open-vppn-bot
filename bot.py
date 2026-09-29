@@ -1,7 +1,8 @@
 import os
 import random
 
-from telegram import InlineKeyboardButton as B, InlineKeyboardMarkup as M
+from telegram import InlineKeyboardButton as B
+from telegram import InlineKeyboardMarkup as M
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -47,6 +48,10 @@ async def menu(q, text, buttons):
     )
 
 
+# =========================
+# START
+# =========================
+
 async def start(u, c):
     await u.message.reply_text(
         "🛒 فروشگاه OpenVppn ❤️\n\n"
@@ -64,15 +69,27 @@ async def start(u, c):
 # =========================
 
 async def admin_panel(u, c):
-    # تست موقت برای اطمینان از دریافت /admin
+
+    if u.effective_user.id != ADMIN:
+        return await u.message.reply_text(
+            "⛔ دسترسی ندارید."
+        )
+
     await u.message.reply_text(
-        f"🔧 تست پنل ادمین\n\n"
-        f"🆔 شناسه شما: {u.effective_user.id}\n"
-        f"🆔 شناسه ادمین: {ADMIN}"
+        "🛠️ پنل مدیریت OpenVppn\n\n"
+        "مدیریت سفارش‌ها و فروشگاه:",
+        reply_markup=M([
+            [B("📦 سفارش‌های جدید", "adm_new")],
+            [B("⏳ سفارش‌های در حال انجام", "adm_work")],
+            [B("✅ سفارش‌های تکمیل‌شده", "adm_done")],
+            [B("❌ سفارش‌های ردشده", "adm_no")],
+            [B("📊 آمار فروش", "adm_stats")],
+        ]),
     )
 
 
 async def admin_menu(u, c):
+
     q = u.callback_query
     await q.answer()
 
@@ -82,7 +99,9 @@ async def admin_menu(u, c):
     d = q.data
     orders = c.bot_data.get("orders", {})
 
+    # برگشت به پنل
     if d == "adm_home":
+
         return await q.edit_message_text(
             "🛠️ پنل مدیریت OpenVppn\n\n"
             "مدیریت سفارش‌ها و فروشگاه:",
@@ -95,6 +114,7 @@ async def admin_menu(u, c):
             ]),
         )
 
+    # لیست سفارش‌ها
     if d in ["adm_new", "adm_work", "adm_done", "adm_no"]:
 
         status = {
@@ -113,17 +133,17 @@ async def admin_menu(u, c):
 
         found = []
 
-        for number, o in orders.items():
+        for number, order in orders.items():
 
-            if o.get("status") == status:
+            if order.get("status") == status:
 
-                p = P.get(o["key"])
+                p = P.get(order["key"])
 
                 if p:
                     found.append(
                         f"🔖 #{number}\n"
                         f"📦 {p[0]} | {p[1]}\n"
-                        f"👤 ID: {o['uid']}"
+                        f"👤 ID: {order['uid']}"
                     )
 
         text = title + "\n\n"
@@ -136,11 +156,12 @@ async def admin_menu(u, c):
         return await q.edit_message_text(
             text,
             reply_markup=M([
-                [B("🔄 بروزرسانی", callback_data=d)],
-                [B("🔙 پنل مدیریت", callback_data="adm_home")],
+                [B("🔄 بروزرسانی", d)],
+                [B("🔙 پنل مدیریت", "adm_home")],
             ]),
         )
 
+    # آمار
     if d == "adm_stats":
 
         total = len(orders)
@@ -179,7 +200,7 @@ async def admin_menu(u, c):
 
 
 # =========================
-# BUTTONS
+# USER BUTTONS
 # =========================
 
 async def btn(u, c):
@@ -189,15 +210,19 @@ async def btn(u, c):
 
     d = q.data
 
+    # دکمه‌های پنل ادمین
     if d.startswith("adm_"):
         return await admin_menu(u, c)
 
+    # خانه
     if d == "home":
+
         return await start(
             type("X", (), {"message": q.message})(),
             c
         )
 
+    # OPEN VPN
     if d == "ov":
 
         return await menu(
@@ -215,6 +240,7 @@ async def btn(u, c):
             ],
         )
 
+    # OPEN VPN سه کاربره
     if d == "3":
 
         return await menu(
@@ -230,6 +256,7 @@ async def btn(u, c):
             ],
         )
 
+    # NPV
     if d == "npv":
 
         return await menu(
@@ -245,6 +272,7 @@ async def btn(u, c):
             ],
         )
 
+    # پشتیبانی
     if d == "sup":
 
         return await menu(
@@ -256,6 +284,7 @@ async def btn(u, c):
             ],
         )
 
+    # انتخاب پلن
     if d in P:
 
         p = P[d]
@@ -273,6 +302,7 @@ async def btn(u, c):
             ],
         )
 
+    # پرداخت
     if d.startswith("pay"):
 
         k = d[3:]
@@ -293,6 +323,7 @@ async def btn(u, c):
             ],
         )
 
+    # ارسال رسید
     if d.startswith("rec"):
 
         c.user_data["order"] = d[3:]
@@ -336,8 +367,10 @@ async def receipt(u, c):
         f"💰 {p[4]} تومان"
     )
 
+    # ارسال رسید به ادمین
     await u.message.forward(ADMIN)
 
+    # ارسال اطلاعات سفارش
     await c.bot.send_message(
         ADMIN,
         text,
@@ -379,19 +412,21 @@ async def admin(u, c):
     d = q.data
     number = d[2:]
 
-    o = c.bot_data.get("orders", {}).get(number)
+    order = c.bot_data.get("orders", {}).get(number)
 
-    if not o:
+    if not order:
+
         return await q.message.reply_text(
             "❌ سفارش پیدا نشد."
         )
 
-    uid = o["uid"]
-    k = o["key"]
+    uid = order["uid"]
+    k = order["key"]
 
+    # رد پرداخت
     if d.startswith("no"):
 
-        o["status"] = "rejected"
+        order["status"] = "rejected"
 
         await c.bot.send_message(
             uid,
@@ -403,13 +438,19 @@ async def admin(u, c):
             f"❌ سفارش #{number} رد شد."
         )
 
-    o["status"] = "delivery"
+    # تایید پرداخت
+    order["status"] = "delivery"
 
     if k.startswith("ov"):
-        o["step"] = "file"
+
+        order["step"] = "file"
+
         msg = "📎 فایل OpenVPN را بفرستید."
+
     else:
-        o["step"] = "npv"
+
+        order["step"] = "npv"
+
         msg = "📝 ساب‌لینک NPV را بفرستید."
 
     await c.bot.send_message(
@@ -433,15 +474,17 @@ async def delivery(u, c):
     if u.effective_user.id != ADMIN:
         return
 
-    for number, o in c.bot_data.get("orders", {}).items():
+    for number, order in c.bot_data.get(
+        "orders", {}
+    ).items():
 
-        if o.get("status") != "delivery":
+        if order.get("status") != "delivery":
             continue
 
-        uid = o["uid"]
+        uid = order["uid"]
 
         # OPEN VPN FILE
-        if o.get("step") == "file":
+        if order.get("step") == "file":
 
             if not u.message.document:
                 continue
@@ -457,22 +500,25 @@ async def delivery(u, c):
                 "⚠️ لینک بالا را بدون VPN باز کنید."
             )
 
-            o["step"] = "login"
+            order["step"] = "login"
 
             return await u.message.reply_text(
                 f"✅ فایل سفارش #{number} ارسال شد.\n\n"
                 f"👤 حالا یوزرنیم و پسورد را بفرستید."
             )
 
-        # OPEN VPN LOGIN
-        if o.get("step") == "login" and u.message.text:
+        # OPEN VPN USERNAME / PASSWORD
+        if (
+            order.get("step") == "login"
+            and u.message.text
+        ):
 
             await c.bot.send_message(
                 uid,
                 u.message.text
             )
 
-            o["status"] = "completed"
+            order["status"] = "completed"
 
             await u.message.reply_text(
                 f"✅ سفارش #{number} تکمیل شد. 🎉"
@@ -483,8 +529,11 @@ async def delivery(u, c):
                 c
             )
 
-        # NPV
-        if o.get("step") == "npv" and u.message.text:
+        # NPV SUBLINK
+        if (
+            order.get("step") == "npv"
+            and u.message.text
+        ):
 
             await c.bot.send_message(
                 uid,
@@ -493,20 +542,20 @@ async def delivery(u, c):
                 + u.message.text
             )
 
-            o["status"] = "completed"
+            order["status"] = "completed"
 
             await u.message.reply_text(
                 f"✅ سفارش #{number} تکمیل شد. 🎉"
             )
 
             return await start(
-                type("X", (), {"message": u.message})(),
+                type("X", (), {"message": u.message })(),
                 c
             )
 
 
 # =========================
-# BOT
+# HANDLERS
 # =========================
 
 app = Application.builder().token(TOKEN).build()
@@ -543,5 +592,10 @@ app.add_handler(
         delivery
     )
 )
+
+
+# =========================
+# RUN
+# =========================
 
 app.run_polling()
