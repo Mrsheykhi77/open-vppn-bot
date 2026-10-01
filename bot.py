@@ -1,5 +1,8 @@
 import os
 import random
+import json
+import sqlite3
+import datetime
 
 from telegram import InlineKeyboardButton as B
 from telegram import InlineKeyboardMarkup as M
@@ -60,6 +63,40 @@ def home_markup():
 
 
 # =========================================================
+# SQLITE DATABASE
+# =========================================================
+DB_FILE = "/root/open-vppn-bot/orders.db"
+
+def db_init():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS orders (
+            number TEXT PRIMARY KEY,
+            data TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def db_load_orders():
+    conn = sqlite3.connect(DB_FILE)
+    rows = conn.execute("SELECT number, data FROM orders").fetchall()
+    conn.close()
+    return {
+        number: json.loads(data)
+        for number, data in rows
+    }
+
+def db_save_order(number, order):
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute(
+        "INSERT OR REPLACE INTO orders(number, data) VALUES(?, ?)",
+        (number, json.dumps(order, ensure_ascii=False))
+    )
+    conn.commit()
+    conn.close()
+
+# =========================================================
 # ORDER HELPERS
 # =========================================================
 
@@ -107,7 +144,12 @@ def admin_home_markup():
         [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
         [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
         [B("📊 آمار فروش", callback_data="adm_stats")],
+        [B("🔎 جستجوی سفارش", callback_data="adm_search")],
     ])
+
+
+def price_to_int(price):
+    return int(str(price).replace(",", "").replace("٬", ""))
 
 
 def back_for_status(status):
@@ -249,6 +291,10 @@ async def admin_menu(u, c):
     if d == "adm_stats":
         orders = c.bot_data.get("orders", {})
 
+        now = datetime.datetime.now()
+        today = now.date()
+        this_month = now.strftime("%Y-%m")
+
         total = len(orders)
 
         review = sum(
@@ -261,14 +307,54 @@ async def admin_menu(u, c):
             if o.get("status") == "delivery"
         )
 
-        done = sum(
-            1 for o in orders.values()
+        done_orders = [
+            o for o in orders.values()
             if o.get("status") == "completed"
-        )
+        ]
+
+        done = len(done_orders)
 
         rejected = sum(
             1 for o in orders.values()
             if o.get("status") == "rejected"
+        )
+
+        total_revenue = sum(
+            price_to_int(P[o["key"]][4])
+            for o in done_orders
+            if o.get("key") in P
+        )
+
+        today_orders = []
+        month_orders = []
+
+        for o in done_orders:
+            completed_at = o.get("completed_at")
+
+            if not completed_at:
+                continue
+
+            try:
+                completed_time = datetime.datetime.fromisoformat(completed_at)
+            except ValueError:
+                continue
+
+            if completed_time.date() == today:
+                today_orders.append(o)
+
+            if completed_time.strftime("%Y-%m") == this_month:
+                month_orders.append(o)
+
+        today_revenue = sum(
+            price_to_int(P[o["key"]][4])
+            for o in today_orders
+            if o.get("key") in P
+        )
+
+        month_revenue = sum(
+            price_to_int(P[o["key"]][4])
+            for o in month_orders
+            if o.get("key") in P
         )
 
         await q.edit_message_text(
@@ -277,12 +363,29 @@ async def admin_menu(u, c):
             f"📦 در انتظار بررسی: {review}\n"
             f"⏳ در حال انجام: {work}\n"
             f"✅ تکمیل‌شده: {done}\n"
-            f"❌ ردشده: {rejected}",
+            f"❌ ردشده: {rejected}\n\n"
+            f"💰 مجموع فروش: {total_revenue:,} تومان\n"
+            f"📅 فروش امروز: {len(today_orders)} سفارش | {today_revenue:,} تومان\n"
+            f"🗓 فروش این ماه: {len(month_orders)} سفارش | {month_revenue:,} تومان",
             reply_markup=M([
                 [B("🔄 بروزرسانی", callback_data="adm_stats")],
                 [B("🔙 پنل مدیریت", callback_data="adm_home")],
             ]),
         )
+
+
+    if d == "adm_search":
+        c.user_data["search_order"] = True
+
+        await q.edit_message_text(
+            "🔎 جستجوی سفارش\n\n"
+            "لطفاً شماره سفارش را وارد کنید.\n"
+            "مثال: 12345",
+            reply_markup=M([
+                [B("🔙 پنل مدیریت", callback_data="adm_home")]
+            ]),
+        )
+        return
 
 
 # =========================================================
@@ -611,7 +714,10 @@ async def receipt(u, c):
         "username": x.username or "",
         "key": key,
         "status": "review",
+        "created_at": datetime.datetime.now().isoformat(timespec="seconds"),
     }
+
+    db_save_order(number, orders[number])
 
     text = (
         f"🧾 سفارش جدید\n\n"
@@ -688,6 +794,7 @@ async def admin_action(u, c):
 
     if d.startswith("no"):
         order["status"] = "rejected"
+        db_save_order(number, order)
 
         await c.bot.send_message(
             uid,
@@ -878,6 +985,38 @@ async def delivery(u, c):
     if u.effective_user.id != ADMIN:
         return
 
+    if c.user_data.get("search_order"):
+        number = (u.message.text or "").strip()
+
+        if not number.isdigit():
+            await u.message.reply_text(
+                "⚠️ شماره سفارش باید فقط عدد باشد.\n"
+                "مثال: 12345"
+            )
+            return
+
+        order = get_order(c, number)
+
+        if not order:
+            await u.message.reply_text(
+                f"❌ سفارش #{number} پیدا نشد.",
+                reply_markup=M([
+                    [B("🔎 جستجوی دوباره", callback_data="adm_search")],
+                    [B("🔙 پنل مدیریت", callback_data="adm_home")],
+                ]),
+            )
+            return
+
+        c.user_data.pop("search_order", None)
+
+        await u.message.reply_text(
+            order_text(number, order),
+            reply_markup=M([
+                [B("🔙 پنل مدیریت", callback_data="adm_home")],
+            ]),
+        )
+        return
+
     number = c.user_data.get(
         "delivery_order"
     )
@@ -958,6 +1097,7 @@ async def delivery(u, c):
         )
 
         order["status"] = "completed"
+        order["completed_at"] = datetime.datetime.now().isoformat(timespec="seconds")
         order["step"] = "done"
 
         c.user_data.pop(
@@ -1000,6 +1140,7 @@ async def delivery(u, c):
         )
 
         order["status"] = "completed"
+        order["completed_at"] = datetime.datetime.now().isoformat(timespec="seconds")
         order["step"] = "done"
 
         c.user_data.pop(
