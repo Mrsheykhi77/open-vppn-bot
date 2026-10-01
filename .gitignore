@@ -2,3 +2,5 @@ orders.db
 __pycache__/
 bot.py.backup*
 bot.py.*-backup
+
+bot.py.before-git-update
