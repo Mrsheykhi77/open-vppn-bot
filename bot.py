@@ -75,6 +75,45 @@ def db_init():
             data TEXT NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            first_name TEXT,
+            first_start TEXT NOT NULL,
+            last_start TEXT NOT NULL,
+            start_count INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def db_save_user(user):
+    conn = sqlite3.connect(DB_FILE)
+    now = datetime.datetime.now().isoformat(timespec="seconds")
+    user_id = user.id
+    username = user.username or ""
+    first_name = user.first_name or ""
+
+    conn.execute("""
+        INSERT INTO users (
+            user_id, username, first_name,
+            first_start, last_start, start_count
+        )
+        VALUES (?, ?, ?, ?, ?, 1)
+        ON CONFLICT(user_id) DO UPDATE SET
+            username = excluded.username,
+            first_name = excluded.first_name,
+            last_start = excluded.last_start,
+            start_count = users.start_count + 1
+    """, (
+        user_id,
+        username,
+        first_name,
+        now,
+        now
+    ))
+
     conn.commit()
     conn.close()
 
@@ -144,6 +183,7 @@ def admin_home_markup():
         [B("✅ سفارش‌های تکمیل‌شده", callback_data="adm_done")],
         [B("❌ سفارش‌های ردشده", callback_data="adm_no")],
         [B("📊 آمار فروش", callback_data="adm_stats")],
+        [B("👥 کاربران ربات", callback_data="adm_users")],
         [B("🔎 جستجوی سفارش", callback_data="adm_search")],
     ])
 
@@ -166,6 +206,7 @@ def back_for_status(status):
 # =========================================================
 
 async def start(u, c):
+    db_save_user(u.effective_user)
     await u.message.reply_text(
         "🛒 فروشگاه OpenVppn ❤️\n\n"
         "سرویس را انتخاب کنید:",
@@ -288,8 +329,47 @@ async def admin_menu(u, c):
         )
         return
 
+    if d == "adm_users":
+        conn = sqlite3.connect(DB_FILE)
+        users = conn.execute(
+            "SELECT user_id, username, first_name, start_count "
+            "FROM users ORDER BY first_start ASC"
+        ).fetchall()
+        conn.close()
+
+        if not users:
+            text = "👥 کاربران ربات\n\nهنوز کاربری ثبت نشده است."
+        else:
+            lines = [
+                f"👥 کاربران ربات — {len(users)} نفر\n"
+            ]
+            for i, (user_id, username, first_name, start_count) in enumerate(users, 1):
+                name = first_name or "بدون نام"
+                user_text = f"@{username}" if username else f"ID: {user_id}"
+                lines.append(
+                    f"{i}. {name}\n"
+                    f"   {user_text}\n"
+                    f"   /start: {start_count} بار"
+                )
+            text = "\n\n".join(lines)
+
+        await q.edit_message_text(
+            text,
+            reply_markup=M([
+                [B("🔄 بروزرسانی", callback_data="adm_users")],
+                [B("🔙 پنل مدیریت", callback_data="adm_home")],
+            ]),
+        )
+        return
+
     if d == "adm_stats":
         orders = c.bot_data.get("orders", {})
+
+        conn = sqlite3.connect(DB_FILE)
+        users_count = conn.execute(
+            "SELECT COUNT(*) FROM users"
+        ).fetchone()[0]
+        conn.close()
 
         now = datetime.datetime.now()
         today = now.date()
@@ -359,6 +439,7 @@ async def admin_menu(u, c):
 
         await q.edit_message_text(
             "📊 آمار فروشگاه\n\n"
+            f"👥 کل کاربران: {users_count}\n"
             f"📦 کل سفارش‌ها: {total}\n"
             f"📦 در انتظار بررسی: {review}\n"
             f"⏳ در حال انجام: {work}\n"
@@ -1190,6 +1271,9 @@ def main():
         .token(TOKEN)
         .build()
     )
+
+    db_init()
+    app.bot_data["orders"] = db_load_orders()
 
     # -------------------------
     # Commands
