@@ -1069,10 +1069,11 @@ async def delivery(u, c):
     if c.user_data.get("search_order"):
         number = (u.message.text or "").strip()
 
-        if not number.isdigit():
+        number = number.upper()
+        if not number.startswith("OV-") or not number[3:].isdigit():
             await u.message.reply_text(
-                "⚠️ شماره سفارش باید فقط عدد باشد.\n"
-                "مثال: 12345"
+                "⚠️ شماره سفارش نامعتبر است.\n"
+                "مثال: OV-9467"
             )
             return
 
