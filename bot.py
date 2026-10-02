@@ -1181,6 +1181,7 @@ async def delivery(u, c):
         order["status"] = "completed"
         order["completed_at"] = datetime.datetime.now().isoformat(timespec="seconds")
         order["step"] = "done"
+        db_save_order(number, order)
 
         c.user_data.pop(
             "delivery_order",
@@ -1221,9 +1222,11 @@ async def delivery(u, c):
             + u.message.text
         )
 
+        order["sublink"] = u.message.text
         order["status"] = "completed"
         order["completed_at"] = datetime.datetime.now().isoformat(timespec="seconds")
         order["step"] = "done"
+        db_save_order(number, order)
 
         c.user_data.pop(
             "delivery_order",
