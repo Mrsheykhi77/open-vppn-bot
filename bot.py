@@ -925,6 +925,8 @@ async def admin_action(u, c):
             f"🔖 سفارش: #{number}"
         )
 
+    db_save_order(number, order)
+
     await c.bot.send_message(
         uid,
         f"✅ پرداخت سفارش #{number} تأیید شد.\n\n"
@@ -1150,6 +1152,7 @@ async def delivery(u, c):
 
         # مرحله بعد
         order["step"] = "login"
+        db_save_order(number, order)
 
         await u.message.reply_text(
             f"✅ فایل سفارش #{number} ارسال شد.\n\n"
